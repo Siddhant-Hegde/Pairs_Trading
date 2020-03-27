@@ -11,8 +11,11 @@ import numpy as np
 
 
 time_period = '240mo' ###20 years of tick data
-yahoo_option = 1
+yahoo_option = 0
 excel_option = 1 - yahoo_option
+
+###purely used to get dimensions of dataframes for each sector
+sandp = yf.Ticker('^GSPC').history(time_period)
 
 ######splitting by sector
 GICS_df = pd.read_csv('C:/Users/ss466/Documents/Trading Analysis/GICS split.csv', encoding= 'unicode_escape')
@@ -20,18 +23,17 @@ GICS_df = pd.read_csv('C:/Users/ss466/Documents/Trading Analysis/GICS split.csv'
 #GICS_df.columns[3] = 'GICS Sector'. For whatever reason hardcoding it results in an error
 ##dataframe of sector: list of tickers
 ticks_by_GICS = {sector: list(GICS_df['Symbol'][GICS_df[GICS_df.columns[3]]==sector]) for sector in GICS_df[GICS_df.columns[3]].unique()}
-print(ticks_by_GICS)
 
 d_with_ticker_dfs = {}
 
 def read_from_yahoo(ticks_by_GICS, yahoo_option):
     if yahoo_option:
         for sector in ticks_by_GICS:
-            num = int(''.join(filter(str.isdigit, time_period))) ###digits in time_period
-            d_with_ticker_dfs[sector] = pd.DataFrame(columns = ticks_by_GICS[sector], data = np.zeros((num,len(ticks_by_GICS[sector]))))
+            ####Use the sandp dataframe above to determine the shapes of the dataframes for each sector
+            d_with_ticker_dfs[sector] = pd.DataFrame(index = sandp.index, columns = ticks_by_GICS[sector], data = np.zeros((sandp.shape[0] ,len(ticks_by_GICS[sector]))))
             ###Using closing prices, as is custom
-            for tick in ticks_by_GICS[sector]:
-                d_with_ticker_dfs[sector][tick] = yf.Ticker(ticks_by_GICS[sector][tick]).history(period = time_period)['Close']
+            for tick_no, tick in enumerate(ticks_by_GICS[sector]):
+                d_with_ticker_dfs[sector][tick] = yf.Ticker(ticks_by_GICS[sector][tick_no]).history(period = time_period)['Close']
         
         ### at least 80% non NaN values
         threshold = int(round(d_with_ticker_dfs[sector].shape[0] * 0.8))
