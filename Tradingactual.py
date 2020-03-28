@@ -8,7 +8,8 @@ Created on Fri Mar 27 11:48:07 2020
 import yfinance as yf
 import pandas as pd
 import numpy as np 
-import tests
+from tests import ADF
+from tests import get_johansen
 
 time_period = '240mo' ###20 years of tick data
 no_pairs = 4 ###4 pairs for each sector
@@ -86,11 +87,22 @@ for sector in correlated_pairs:
     keys_with_highest_values = sorted(correlated_pairs[sector], key=correlated_pairs[sector].get, reverse=True)[:no_pairs]
     for i in keys_with_highest_values:
         key_pair =  correlated_pairs[sector][i][1]
-        best_correlated_pairs_sector[sector].append([i,key_pair])
-
-###getting rid of redundant pairs
-
+        if [key_pair, i] not in best_correlated_pairs_sector[sector]:
+            best_correlated_pairs_sector[sector].append([i,key_pair])
 
 ####Check if the pairs pass coinegration test
+#eigen_vec = []
+final_pairs = []
+for sector in ticks_by_GICS:
+    for i in range(len(best_correlated_pairs_sector[sector])):
+        ##check for stationarity first (both stocks should be non stationary)
+        d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]].dropna(inplace=True)
+        d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]].dropna(inplace=True)
+        if ADF(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]]) and ADF(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]]):
+            joint_pairs_series = pd.merge(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]], d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]], left_index=True, right_index=True)
+            #eigen_vec.append(get_johansen(joint_pairs_series,0))
+            final_pairs.append(get_johansen(joint_pairs_series, 0))
+            
+            
 
-
+print(eigen_vec)
