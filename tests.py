@@ -53,11 +53,10 @@ def get_johansen(y, p):
                 else:
                     return_vec.append(i)
                     break
-            if return_vec is not None:
-                highest_eigval_indx = np.argmax(np.max(result.eig, axis=0))
-                highest_eigvec = result_evec[:,highest_eigval_indx]
-                return_vec.append(highest_eigvec)
-            
+#            if return_vec is not None:
+#                highest_eigval_indx = np.argmax(np.max(result.eig, axis=0))
+#                highest_eigvec = result_evec[:,highest_eigval_indx]
+#                return_vec.append(list(highest_eigvec))
             return return_vec
         except np.linalg.LinAlgError:
             return None

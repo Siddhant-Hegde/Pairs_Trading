@@ -102,7 +102,5 @@ for sector in ticks_by_GICS:
             joint_pairs_series = pd.merge(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]], d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]], left_index=True, right_index=True)
             #eigen_vec.append(get_johansen(joint_pairs_series,0))
             final_pairs.append(get_johansen(joint_pairs_series, 0))
-            
-            
-
-print(eigen_vec)
+                        
+print(final_pairs)
