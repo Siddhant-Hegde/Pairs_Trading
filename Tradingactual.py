@@ -38,7 +38,7 @@ def read_from_yahoo(ticks_by_GICS, yahoo_option):
             ##Using closing prices, as is custom
             for tick_no, tick in enumerate(ticks_by_GICS[sector]):
                 d_with_ticker_dfs[sector][tick] = yf.Ticker(ticks_by_GICS[sector][tick_no]).history(period = time_period)['Close']
-                print(d_with_ticker_dfs[sector])
+
         ### at least 80% non NaN values
         threshold = int(round(d_with_ticker_dfs[sector].shape[0] * 0.8))
         d_with_ticker_dfs[sector].dropna(axis = 1, thresh = threshold, inplace = True)
@@ -105,4 +105,3 @@ for sector in ticks_by_GICS:
                 if get_johansen(joint_pairs_series, 0)[0] != 0:
                     final_pairs.append((best_correlated_pairs_sector[sector][i][0], best_correlated_pairs_sector[sector][i][1]))                       
 
-print(final_pairs)
