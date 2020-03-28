@@ -3,6 +3,7 @@
 Created on Wed Mar 25 18:52:37 2020
 
 @author: ss466
+Contains time-series tests 
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,6 +12,7 @@ from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
 from statsmodels.tsa.vector_ar.var_model import VAR
 
+##Unit root test
 def ADF(v, crit='5%', max_d=6, reg='nc', autolag='AIC'):
     """ Augmented Dickey Fuller test
 
@@ -36,6 +38,7 @@ def ADF(v, crit='5%', max_d=6, reg='nc', autolag='AIC'):
 
     return boolean
 
+##Cointegration test
 def get_johansen(y, p):
         """
         Get the cointegration vectors at 95% level of significance
