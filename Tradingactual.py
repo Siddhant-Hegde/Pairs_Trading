@@ -3,6 +3,13 @@
 Created on Fri Mar 27 11:48:07 2020
 
 @author: ss466
+
+This file is used to obtains pairs within the GICS Sectors of the S&P.
+These pairs are chosen based on their degree of correlation and if they are
+Cointegrated based on the Johansen test. 
+
+Once selected their price ratios are calculated and histrocial std's determined
+to see when would be an ideal time to enter into the pairs trade.  
 """
 
 import yfinance as yf
@@ -92,7 +99,7 @@ for sector in correlated_pairs:
 
 ####Check if the pairs pass coinegration test
 #eigen_vec = []
-final_pairs = []
+final_pairs = [] ####Contains the pairs that pass all the tests
 for sector in ticks_by_GICS:
     for i in range(len(best_correlated_pairs_sector[sector])):
         ##check for stationarity first (both stocks should be non stationary)
@@ -105,3 +112,23 @@ for sector in ticks_by_GICS:
                 if get_johansen(joint_pairs_series, 0)[0] != 0:
                     final_pairs.append((best_correlated_pairs_sector[sector][i][0], best_correlated_pairs_sector[sector][i][1]))                       
 
+#######When to get into the pairs
+####determining s.d.s of the pair-ratios
+df_with_just_ticks_values = d_with_ticker_dfs['Industrials'].copy() ###df with all the ticks and no sector segregation
+for sector in d_with_ticker_dfs:
+    df_with_just_ticks_values = pd.merge(df_with_just_ticks_values, d_with_ticker_dfs[sector], left_index=True, right_index=True)
+
+training_set_size = round(int(0.6) * df_with_just_ticks_values.shape[0]) ####training set (60%)
+test_set_size = round(int(0.8) * df_with_just_ticks_values.shape[0])
+print(df_with_just_ticks_values)
+
+std = {}
+price_ratio = pd.DataFrame()
+for pair in final_pairs:
+    print(df_with_just_ticks_values)
+    num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
+    denom = df_with_just_ticks_values[pair[1]].iloc[0:training_set_size].copy()
+    price_ratio[pair[0]+pair[1]] = num/denom
+    std[pair[0]+pair[1]] = price_ratio[pair[0]+pair[1]].std()
+
+####threshold is 2 std's
