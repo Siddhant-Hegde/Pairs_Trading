@@ -107,28 +107,60 @@ for sector in ticks_by_GICS:
         d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]].dropna(inplace=True)
         if ADF(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]]) and ADF(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]]):
             joint_pairs_series = pd.merge(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]], d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]], left_index=True, right_index=True)
-            #eigen_vec.append(get_johansen(joint_pairs_series,0))
             if get_johansen(joint_pairs_series, 0):
                 if get_johansen(joint_pairs_series, 0)[0] != 0:
                     final_pairs.append((best_correlated_pairs_sector[sector][i][0], best_correlated_pairs_sector[sector][i][1]))                       
 
 #######When to get into the pairs
 ####determining s.d.s of the pair-ratios
-df_with_just_ticks_values = d_with_ticker_dfs['Industrials'].copy() ###df with all the ticks and no sector segregation
-for sector in d_with_ticker_dfs:
-    df_with_just_ticks_values = pd.merge(df_with_just_ticks_values, d_with_ticker_dfs[sector], left_index=True, right_index=True)
-
-training_set_size = round(int(0.6) * df_with_just_ticks_values.shape[0]) ####training set (60%)
-test_set_size = round(int(0.8) * df_with_just_ticks_values.shape[0])
-print(df_with_just_ticks_values)
-
-std = {}
-price_ratio = pd.DataFrame()
-for pair in final_pairs:
-    print(df_with_just_ticks_values)
-    num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
-    denom = df_with_just_ticks_values[pair[1]].iloc[0:training_set_size].copy()
-    price_ratio[pair[0]+pair[1]] = num/denom
-    std[pair[0]+pair[1]] = price_ratio[pair[0]+pair[1]].std()
-
 ####threshold is 2 std's
+df_with_just_ticks_values = d_with_ticker_dfs['Industrials'].copy() ###df with all the ticks and no sector segregation
+
+for sector in d_with_ticker_dfs:
+    if sector != 'Industrials':
+        df_with_just_ticks_values = pd.merge(df_with_just_ticks_values, d_with_ticker_dfs[sector], left_index=True, right_index=True)
+
+training_set_size = round(int(0.6 * df_with_just_ticks_values.shape[0])) ####training set (60%)
+test_set_end = round(int(0.8 * df_with_just_ticks_values.shape[0])) ####test set (20%)
+
+std_train = {}
+avg_train = {}
+price_ratio_training = pd.DataFrame()
+std_test = {}
+avg_test = {}
+price_ratio_test = pd.DataFrame()
+for pair in final_pairs:
+    num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
+    num.dropna(inplace = True)
+    denom = df_with_just_ticks_values[pair[1]].iloc[0:training_set_size].copy()
+    denom.dropna(inpace = True)
+    if num.shape[0] < 0.8 * df_with_just_ticks_values[pair[0]] or denom.shape[0] < 0.8 * df_with_just_ticks_values[pair[0]]:
+        continue
+    
+    price_ratio_training[pair[0] + pair[1]] = num.copy()/denom.copy()
+    std_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].std()
+    avg_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].mean()
+    
+    num_test = df_with_just_ticks_values[pair[0]].iloc[training_set_size:test_set_end].copy()
+    denom_test = df_with_just_ticks_values[pair[1]].iloc[training_set_size:test_set_end].copy()
+    price_ratio_test[pair[0] + pair[1]] = num_test.copy()/denom_test.copy()
+    avg_test[(pair[0],pair[1])] = price_ratio_test[pair[0]+pair[1]].mean()
+    
+    ####if over 10 days the std is greater than the long run avg std * 2
+    for i in range(0, test_set_end - training_set_size, 10):
+        if std_train[(pair[0],pair[1])] * 2 < price_ratio_test[pair[0] + pair[1]].iloc[i:i+10].std():
+            ###go long the stock that has gone down and short the one that is up trending
+            if avg_train[(pair[0],pair[1])] < avg_test[(pair[0],pair[1])]:
+                ###uptredning
+                ###go long stock in numerator for 1-month period
+                ##calculate returns
+                ret = df_with_just_ticks_values[pair[0]].iloc[i+10:i+40]/ df_with_just_ticks_values[pair[0]].iloc[i+10:i+40].shift(1) - 1 \
+                        - df_with_just_ticks_values[pair[1]].iloc[i+10:i+40] / df_with_just_ticks_values[pair[1]].iloc[i+10:i+40].shift(1) - 1
+
+            else:
+                
+                ret = - df_with_just_ticks_values[pair[0]].iloc[i+10:i+40]/ df_with_just_ticks_values[pair[0]].iloc[i+10:i+40].shift(1) - 1 \
+                        + df_with_just_ticks_values[pair[1]].iloc[i+10:i+40] / df_with_just_ticks_values[pair[1]].iloc[i+10:i+40].shift(1) - 1
+
+    
+
