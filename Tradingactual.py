@@ -18,14 +18,18 @@ import numpy as np
 from tests import ADF
 from tests import get_johansen
 import statistics
+import statsmodels.api as sm
 
 time_period = '240mo' ###20 years of tick data
 no_pairs = 4 ###4 pairs for each sector
 
 ###need to optimize these parameters
-observe_pair_period = 10 ###no of days pair is observed (i.e. std, mean to see if its worth getting into)
+observe_pair_period = 500 ###no of days pair is observed (calc mean and std during this period)
+lookback_period = 10 ###check the pair mean and std and compare against mean and std from oberve_pair_period
 stay_in_pair_period = 30 ###no of days in the pair
 total_period = observe_pair_period + stay_in_pair_period
+hedge_ratio_start = 0.1
+hedge_ratio_end = 10
 
 ####Do we want to scrape the data from yahoo or used excel files that contain data from when the yahoo data 
 ####was previously scraped
@@ -126,8 +130,8 @@ for sector in d_with_ticker_dfs:
     if sector != 'Industrials':
         df_with_just_ticks_values = pd.merge(df_with_just_ticks_values, d_with_ticker_dfs[sector], left_index=True, right_index=True)
 
-training_set_size = round(int(0.6 * df_with_just_ticks_values.shape[0])) ####training set (60%)
-test_set_end = round(int(0.8 * df_with_just_ticks_values.shape[0])) ####test set (20%)
+#training_set_size = round(int(0.6 * df_with_just_ticks_values.shape[0])) ####training set (60%)
+#test_set_end = round(int(0.8 * df_with_just_ticks_values.shape[0])) ####test set (20%)
 
 std_train = {}
 avg_train = {}
@@ -137,39 +141,47 @@ avg_test = {}
 price_ratio_test = pd.DataFrame()
 ret = []
 for pair in final_pairs:
-    num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
-    num.dropna(inplace = True)
-    denom = df_with_just_ticks_values[pair[1]].iloc[0:training_set_size].copy()
-    denom.dropna(inplace = True)
-    if num.shape[0] < 0.8 * df_with_just_ticks_values[pair[0]] or denom.shape[0] < 0.8 * df_with_just_ticks_values[pair[0]]:
-        continue
+    #num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
+    num = df_with_just_ticks_values[pair[0]].copy()
+    #denom = df_with_just_ticks_values[pair[1]].iloc[0:training_set_size].copy()
+    denom = df_with_just_ticks_values[pair[1]].copy()
+    dummy = pd.merge(num, denom, left_index= True, right_index = True)
+    dummy.dropna(inplace=True)
+    training_set_size = round(int(0.6 * dummy.shape[0]))
+    test_set_end = round(int(0.8 * dummy.shape[0]))
     
-    price_ratio_training[pair[0] + pair[1]] = num.copy()/denom.copy()
-    std_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].std()
-    avg_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].mean()
+    if training_set_size < 0.5 * round(int(0.6 * df_with_just_ticks_values.shape[0])):
+        continue
     
     num_test = df_with_just_ticks_values[pair[0]].iloc[training_set_size:test_set_end].copy()
     denom_test = df_with_just_ticks_values[pair[1]].iloc[training_set_size:test_set_end].copy()
     price_ratio_test[pair[0] + pair[1]] = num_test.copy()/denom_test.copy()
     avg_test[(pair[0],pair[1])] = price_ratio_test[pair[0]+pair[1]].mean()
     
+    #####Determine the mean and std's of the price ratio of pair during observation period
+    ####Usually sample should be > 100 (observe_pair_period~500)
+    price_ratio_training[pair[0] + pair[1]] = num.copy()/denom.copy()
+    std_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].std()
+    avg_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].mean()
+    
     ####if over 10 days the std is greater than the long run avg std * 2
-    for i in range(0, test_set_end - training_set_size, observe_pair_period):
-        returns = 0
-        if std_train[(pair[0],pair[1])] * 2 < price_ratio_test[pair[0] + pair[1]].iloc[i:i+observe_pair_period].std():
-            ###go long the stock that has gone down and short the one that is up trending
-            if avg_train[(pair[0],pair[1])] < avg_test[(pair[0],pair[1])]:
-                ###uptredning
-                ###go long stock in numerator for 1-month period
-                ##calculate returns
-                returns += df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
-                        - df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
-            else:
-                ###short numerator and log denom
-                returns += - df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
-                        + df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
-        
-        ret.append(returns)
+    for i in range(observe_pair_period, training_set_size, lookback_period):
+        for hedge_ratio in range(hedge_ratio_start, hedge_ratio_end, 0.5):
+            returns = 0
+            if std_train[(pair[0],pair[1])] * 2 < price_ratio_test[pair[0] + pair[1]].iloc[i:i+lookback_period].std():
+                ###go long the stock that has gone down and short the one that is up trending
+                if avg_train[(pair[0],pair[1])] < price_ratio_test[pair[0] + pair[1]].iloc[i:i+lookback_period].mean():
+                    ###uptredning
+                    ###go long stock in numerator for 1-month period
+                    ##calculate returns
+                    returns += 1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
+                            - 1000 * df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
+                else:
+                    ###short numerator and log denom
+                    returns += - df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
+                            + df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
+            
+            ret.append(returns)
             
 ##Sharpe Ratio (without costs)
 rf = 1.0
