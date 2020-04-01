@@ -145,6 +145,8 @@ std_test = {}
 avg_test = {}
 price_ratio_test = pd.DataFrame()
 ret = {}
+for i in hedge_ratio_list:
+    ret[str(i)] = []
 for pair in final_pairs:
     #num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
     num = df_with_just_ticks_values[pair[0]].copy()
@@ -183,7 +185,7 @@ for pair in final_pairs:
                 ###How long would we be in pair? Only as long as the std doesn't decrease below 1
                 ###If the pairs dont converge within trading_period we just close out and accept the loss
                 for t in range(0, trading_period):
-                    mean_trading_period = price_ratio_training[pair[0] + pair[1]].iloc[i+lookback_period:i+lookback_period+t]
+                    mean_trading_period = price_ratio_training[pair[0] + pair[1]].iloc[i+lookback_period:i+lookback_period+t].mean()
                     while mean_trading_period > mean_obs_period + threshold_std_for_closing_out * std_obs_period:                       
                         ####calculate returns       
                         ###go long the stock that has gone down and short the one that is up trending
@@ -195,7 +197,7 @@ for pair in final_pairs:
                             - 1000 * df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t:i+lookback_period+t+1] / df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t:i+lookback_period+t+1].shift(1) - 1
             else:
                 for t in range(0, trading_period):
-                    mean_trading_period = price_ratio_training[pair[0] + pair[1]].iloc[i+lookback_period:i+lookback_period+t]
+                    mean_trading_period = price_ratio_training[pair[0] + pair[1]].iloc[i+lookback_period:i+lookback_period+t].mean()
                     while mean_trading_period > mean_obs_period + threshold_std_for_closing_out * std_obs_period:   
                     ###short numerator and log denom
                         returns += -1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t:i+lookback_period+t+1]/ df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t:i+lookback_period+t+1].shift(1) - 1 \
