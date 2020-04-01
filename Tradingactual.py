@@ -28,11 +28,11 @@ no_pairs = 4 ###4 pairs for each sector
 ###need to optimize these parameters
 observe_pair_period = 500 ###no of days pair is observed (calc mean and std during this period)
 lookback_period = 10 ###check the pair mean and std and compare against mean and std from oberve_pair_period
-stay_in_pair_period = 30 ###no of days in the pair
 trading_period = 45
-total_period = observe_pair_period + stay_in_pair_period
-hedge_ratio_start = 0.1
+#total_period = observe_pair_period + stay_in_pair_period
+hedge_ratio_start = 0.5
 hedge_ratio_end = 10
+hedge_ratio_list = [i/10 for i in range(int(hedge_ratio_start*10), hedge_ratio_end*10,int(hedge_ratio_start*10))]
 threshold_std = 2
 threshold_std_for_closing_out = 1
 
@@ -170,8 +170,8 @@ for pair in final_pairs:
     #avg_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].mean()
     
     ####if over 10 days the std is greater than the long run avg std * 2
-    for i in range(observe_pair_period, training_set_size, lookback_period):
-        for hedge_ratio in range(hedge_ratio_start, hedge_ratio_end, 0.5):
+    for i in range(observe_pair_period, training_set_size - trading_period - 1, lookback_period):
+        for hedge_ratio in hedge_ratio_list:
             returns = 0
             ###std up to lookback period is less than std during lookback period
             mean_obs_period = price_ratio_training[pair[0]+pair[1]].iloc[0:i].mean()
@@ -191,15 +191,15 @@ for pair in final_pairs:
                         ###go long stock in numerator for 1-month period
                         ##calculate returns
                     
-                        returns += 1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+lookback_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
-                            - 1000 * df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
+                        returns += 1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t:i+lookback_period+t+1]/ df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t:i+lookback_period+t+1].shift(1) - 1 \
+                            - 1000 * df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t:i+lookback_period+t+1] / df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t:i+lookback_period+t+1].shift(1) - 1
             else:
                 for t in range(0, trading_period):
                     mean_trading_period = price_ratio_training[pair[0] + pair[1]].iloc[i+lookback_period:i+lookback_period+t]
                     while mean_trading_period > mean_obs_period + threshold_std_for_closing_out * std_obs_period:   
                     ###short numerator and log denom
-                        returns += -1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
-                            + 1000 * df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
+                        returns += -1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t:i+lookback_period+t+1]/ df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t:i+lookback_period+t+1].shift(1) - 1 \
+                            + 1000 * df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t:i+lookback_period+t+1] / df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t:i+lookback_period+t+1].shift(1) - 1
             
             ret[str(hedge_ratio)].append(returns)
 
