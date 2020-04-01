@@ -9,7 +9,9 @@ These pairs are chosen based on their degree of correlation and if they are
 Cointegrated based on the Johansen test. 
 
 Once selected their price ratios are calculated and histrocial std's determined
-to see when would be an ideal time to enter into the pairs trade.  
+to see when would be an ideal time to enter into the pairs trade.
+
+This code only considers entering the trade when there is a divergence of the pair. 
 """
 
 import yfinance as yf
@@ -27,9 +29,12 @@ no_pairs = 4 ###4 pairs for each sector
 observe_pair_period = 500 ###no of days pair is observed (calc mean and std during this period)
 lookback_period = 10 ###check the pair mean and std and compare against mean and std from oberve_pair_period
 stay_in_pair_period = 30 ###no of days in the pair
+trading_period = 45
 total_period = observe_pair_period + stay_in_pair_period
 hedge_ratio_start = 0.1
 hedge_ratio_end = 10
+threshold_std = 2
+threshold_std_for_closing_out = 1
 
 ####Do we want to scrape the data from yahoo or used excel files that contain data from when the yahoo data 
 ####was previously scraped
@@ -139,7 +144,7 @@ price_ratio_training = pd.DataFrame()
 std_test = {}
 avg_test = {}
 price_ratio_test = pd.DataFrame()
-ret = []
+ret = {}
 for pair in final_pairs:
     #num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
     num = df_with_just_ticks_values[pair[0]].copy()
@@ -161,29 +166,46 @@ for pair in final_pairs:
     #####Determine the mean and std's of the price ratio of pair during observation period
     ####Usually sample should be > 100 (observe_pair_period~500)
     price_ratio_training[pair[0] + pair[1]] = num.copy()/denom.copy()
-    std_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].std()
-    avg_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].mean()
+    #std_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].std()
+    #avg_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].mean()
     
     ####if over 10 days the std is greater than the long run avg std * 2
     for i in range(observe_pair_period, training_set_size, lookback_period):
         for hedge_ratio in range(hedge_ratio_start, hedge_ratio_end, 0.5):
             returns = 0
-            if std_train[(pair[0],pair[1])] * 2 < price_ratio_test[pair[0] + pair[1]].iloc[i:i+lookback_period].std():
-                ###go long the stock that has gone down and short the one that is up trending
-                if avg_train[(pair[0],pair[1])] < price_ratio_test[pair[0] + pair[1]].iloc[i:i+lookback_period].mean():
-                    ###uptredning
-                    ###go long stock in numerator for 1-month period
-                    ##calculate returns
-                    returns += 1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
+            ###std up to lookback period is less than std during lookback period
+            mean_obs_period = price_ratio_training[pair[0]+pair[1]].iloc[0:i].mean()
+            std_obs_period = price_ratio_training[pair[0]+pair[1]].iloc[0:i].std()
+            mean_lookback_period = price_ratio_training[pair[0] + pair[1]].iloc[i:i+lookback_period].mean()
+            std_lookback_period = price_ratio_training[pair[0] + pair[1]].iloc[i:i+lookback_period].std()
+            if mean_obs_period + threshold_std * std_obs_period < mean_lookback_period:
+                ###Go long the numerator
+                ###How long would we be in pair? Only as long as the std doesn't decrease below 1
+                ###If the pairs dont converge within trading_period we just close out and accept the loss
+                for t in range(0, trading_period):
+                    mean_trading_period = price_ratio_training[pair[0] + pair[1]].iloc[i+lookback_period:i+lookback_period+t]
+                    while mean_trading_period > mean_obs_period + threshold_std_for_closing_out * std_obs_period:                       
+                        ####calculate returns       
+                        ###go long the stock that has gone down and short the one that is up trending
+                        ###uptrending
+                        ###go long stock in numerator for 1-month period
+                        ##calculate returns
+                    
+                        returns += 1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+lookback_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
                             - 1000 * df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
-                else:
+            else:
+                for t in range(0, trading_period):
+                    mean_trading_period = price_ratio_training[pair[0] + pair[1]].iloc[i+lookback_period:i+lookback_period+t]
+                    while mean_trading_period > mean_obs_period + threshold_std_for_closing_out * std_obs_period:   
                     ###short numerator and log denom
-                    returns += - df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
-                            + df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
+                        returns += -1000 * hedge_ratio * df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period]/ df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1 \
+                            + 1000 * df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period] / df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period:i+total_period].shift(1) - 1
             
-            ret.append(returns)
-            
+            ret[str(hedge_ratio)].append(returns)
+
+print(ret)
 ##Sharpe Ratio (without costs)
-rf = 1.0
-sr = (ret - rf)/statistics.stdev(ret)
-print(sr)
+
+#rf = 1.0
+#sr = (ret - rf)/statistics.stdev(ret)
+#print(sr)
