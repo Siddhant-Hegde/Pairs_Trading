@@ -20,6 +20,7 @@ import numpy as np
 from tests import ADF
 from tests import get_johansen
 import statsmodels.api as sm
+import statistics
 
 time_period = '240mo' ###20 years of tick data
 no_pairs = 4 ###4 pairs for each sector
@@ -144,9 +145,8 @@ std_test = {}
 avg_test = {}
 price_ratio_test = pd.DataFrame()
 ret = {}
-hedge_returns = {}
 for i in hedge_ratio_list:
-    hedge_returns[str(i)] = []
+    ret[str(i)] = []
     
 for pair in final_pairs:
     #num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
@@ -230,13 +230,15 @@ for pair in final_pairs:
                         print('Returns are {}'.format(returns))
                     else:
                         break
-            hedge_returns[str(hedge_ratio)].append(returns) 
-            
-        ret[str(observe_pair_period)] = hedge_returns
-        
+            if returns!=0:
+                
+                ret[str(hedge_ratio)].append(returns) 
+                    
 print(ret)
 ##Sharpe Ratio (without costs)
 
-#rf = 1.0
-#sr = (ret - rf)/statistics.stdev(ret)
-#print(sr)
+rf = 1.0
+for i in hedge_ratio_list:
+    sr = (statistics.mean(ret[str(i)]) - rf)/statistics.stdev(ret[str(i)])
+    
+print(sr)
