@@ -35,7 +35,7 @@ threshold_in = 2
 threshold_out = 0.5
 rf = 1.0
 transaction_costs = 4.5
-stop_loss_return = -4
+stop_loss_return = -4.0
 
 ####Do we want to scrape the data from yahoo or used excel files that contain data from when the yahoo data 
 ####was previously scraped
@@ -179,6 +179,9 @@ for pair in final_pairs:
     first_stock_test = df_with_just_ticks_values[pair[0]].iloc[training_set_size:test_set_end].copy()
     second_stock_test = df_with_just_ticks_values[pair[1]].iloc[training_set_size:test_set_end].copy()
 
+    ###Check the mean Z-Score between the lookback period in comparison to the observation period
+    ###to see if threshold_in gets breached. 
+    ###And then keep checking trading period Z-Score to ensure the trades havent breached the threshold_out 
     for i in range(observe_pair_period, training_set_size - trading_period - 1, lookback_period):
             ###std up to lookback period is less than std during lookback period
             returns = 0
