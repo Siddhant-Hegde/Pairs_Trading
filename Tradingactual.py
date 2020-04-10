@@ -28,15 +28,13 @@ no_pairs = 4 ###4 pairs for each sector
 
 costs = 5##5 percent
 ###need to optimize these parameters
-observe_pair_period = 5 ###no of days pair is observed (calc mean and std during this period)
+observe_pair_period = 500 ###no of days pair is observed (calc mean and std during this period)
 lookback_period = 10 ###check the pair mean and std and compare against mean and std from oberve_pair_period
 trading_period = 45
-#total_period = observe_pair_period + stay_in_pair_period
-hedge_ratio_start = 0.4
-hedge_ratio_end = 2
-hedge_ratio_list = [i/10 for i in range(int(hedge_ratio_start*10), hedge_ratio_end*10,int(hedge_ratio_start*10))]
 threshold_in = 2
-threshold_out = 1.5
+threshold_out = 0.5
+rf = 1.0
+transaction_costs = 4.5
 stop_loss_return = -4
 
 ####Do we want to scrape the data from yahoo or used excel files that contain data from when the yahoo data 
@@ -137,9 +135,6 @@ df_with_just_ticks_values = d_with_ticker_dfs['Industrials'].copy() ###df with a
 for sector in d_with_ticker_dfs:
     if sector != 'Industrials':
         df_with_just_ticks_values = pd.merge(df_with_just_ticks_values, d_with_ticker_dfs[sector], left_index=True, right_index=True)
-
-#training_set_size = round(int(0.6 * df_with_just_ticks_values.shape[0])) ####training set (60%)
-#test_set_end = round(int(0.8 * df_with_just_ticks_values.shape[0])) ####test set (20%)
         
 ###if the spread over the observation period is past the thresholds then we enter the pair
 def spreads(pairs, data_with_pair_values):
@@ -155,6 +150,7 @@ def spreads(pairs, data_with_pair_values):
     # Create the spread and z-score of the spread
     spread['spread'] = model.resid
     spread['zscore'] = (spread['spread'] - np.mean(spread['spread']))/np.std(spread['spread'])
+
     return spread
         
 ####################################
@@ -182,15 +178,7 @@ for pair in final_pairs:
     
     first_stock_test = df_with_just_ticks_values[pair[0]].iloc[training_set_size:test_set_end].copy()
     second_stock_test = df_with_just_ticks_values[pair[1]].iloc[training_set_size:test_set_end].copy()
-    
 
-    #####Determine the mean and std's of the price ratio of pair during observation period
-    ####Usually sample should be > 100 (observe_pair_period~500)
-    #std_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].std()
-    #avg_train[(pair[0],pair[1])] = price_ratio_training[pair[0]+pair[1]].iloc[0:observe_pair_period].mean()
-    
-    ####if over 10 days the std is greater than the long run avg std * 2
-    #for i in range(observe_pair_period, training_set_size - trading_period - 1, lookback_period):
     for i in range(observe_pair_period, training_set_size - trading_period - 1, lookback_period):
             ###std up to lookback period is less than std during lookback period
             returns = 0
@@ -200,6 +188,7 @@ for pair in final_pairs:
             z_score_obs_period = np.mean(spread_obs_period['zscore'])
             z_score_lookback_period = np.mean(spread_lookback_period['zscore'])
             if z_score_obs_period * threshold_in < z_score_lookback_period:
+                ###Pairs have divereged
                 ###Long 2nd and short 1st
                 for t in range(2, trading_period):
                     flag = 1
@@ -207,17 +196,13 @@ for pair in final_pairs:
                     z_score_trading_period = np.mean(spread_trading_period['zscore'])
                     if z_score_trading_period > threshold_out * z_score_obs_period: 
                         if returns > stop_loss_return:
-                        #if spread_obs_period['mean_spread'] * 1.2 < spread_trading_period['mean_spread']:
                             returns += -1 * (spread_trading_period['hedge_ratio'] * df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t]/ df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t-1] - 1) \
                             + 1 * (df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t] / df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t-1] - 1)
-                        else:
+                        else: 
+                            ## if the loss is more than the stop loss
                             break
                     else:
-#                        if flag == 1:
-#                            #sell off
-#                            returns += df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period+t] \
-#                            - df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period+t]
-#                        else:
+                        ## if the  pairs have converged to a large extent
                             break
             elif z_score_obs_period > threshold_in * z_score_lookback_period:
                 ###Long 1st and short 2nd
@@ -227,28 +212,18 @@ for pair in final_pairs:
                     z_score_trading_period = np.mean(spread_trading_period['zscore'])
                     if z_score_trading_period * threshold_out < z_score_obs_period: 
                         if returns > stop_loss_return:
-                    #if spread_obs_period['mean_spread'] * 1.2 < spread_trading_period['mean_spread']:
                             returns += 1  * (df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t]/ df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t-1] - 1) \
-                            - (1 * spread_trading_period['hedge_ratio'] * df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t] / df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t-1] - 1)
+                            - 1 * spread_trading_period['hedge_ratio'] * (df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t] / df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t-1] - 1)
                         else:
                             break
                     else:
-#                        if flag == 1:
-#                            #sell off
-#                            returns += -df_with_just_ticks_values[pair[0]].iloc[i+observe_pair_period+t] \
-#                            + df_with_just_ticks_values[pair[1]].iloc[i+observe_pair_period+t]
-#                        else:
                             break
 
             if returns!=0:
                 if not math.isnan(returns):
-                    ret.append(returns) 
-                        
-print(ret)
+                    ret.append(returns*100) 
+    
 ##Sharpe Ratio (without costs)
-
-rf = 0.5
-for i in hedge_ratio_list:
-    sr = (statistics.mean(ret) - rf)/statistics.stdev(ret)
+sr = (statistics.mean(ret) - rf - transaction_costs)/statistics.stdev(ret)
     
 print(sr)
