@@ -48,7 +48,6 @@ sandp = yf.Ticker('^GSPC').history(time_period)
 ######splitting by sector
 GICS_df = pd.read_csv('C:/Git stuff/Pairs_Trading/GICS split.csv', encoding= 'unicode_escape')
 
-#GICS_df.columns[3] = 'GICS Sector'. For whatever reason hardcoding it results in an error
 ##dataframe of sector: list of tickers
 ticks_by_GICS = {sector: list(GICS_df['Symbol'][GICS_df[GICS_df.columns[3]]==sector]) for sector in GICS_df[GICS_df.columns[3]].unique()}
 
