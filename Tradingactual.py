@@ -29,10 +29,10 @@ time_period = '240mo' ###20 years of tick data
 no_pairs = 4 ###4 pairs for each sector
 
 ###need to optimize these parameters
-formation_period = 2000
-observe_pair_period = 500 ###no of days pair is observed (calc mean and std during this period)
+formation_period = 180
+observe_pair_period = 300 ###no of days pair is observed (calc mean and std during this period)
 lookback_period = 2 ###check the pair mean and std and compare against mean and std from oberve_pair_period
-trading_period = 45
+trading_period = 30
 threshold_in = 2
 threshold_out = 0.5
 rf = 0.5
@@ -244,17 +244,19 @@ flat_list_pairs = list(set(chain(*final_pairs)))
 pairs_df = df_with_just_ticks_values[flat_list_pairs].copy()
 pairs_df.dropna(inplace=True)
         
-training_set_size = round(int(0.8 * pairs_df.shape[0]))
+training_set_size = round(int(pairs_df.shape[0]))
 
 returns = []
-while strategy_run_day < training_set_size:
+while strategy_run_day + formation_period + observe_pair_period + trading_period + lookback_period < training_set_size:
+    
     ret = returns_from_strategy(final_pairs, d_with_ticker_dfs, df_with_just_ticks_values, strategy_run_day, pairs_df, formation_period, observe_pair_period)
     returns.append(ret)
     strategy_run_day = strategy_run_day + formation_period + observe_pair_period + trading_period + lookback_period
-    final_pairs = obtain_final_pairs(ticks_by_GICS,d_with_ticker_dfs, no_pairs, strategy_run_day, formation_period)
+    final_pairs = obtain_final_pairs(ticks_by_GICS, d_with_ticker_dfs, no_pairs, strategy_run_day, formation_period)
     final_pairs_flattened = list(set(chain(*final_pairs)))
     pairs_df = df_with_just_ticks_values[final_pairs_flattened].copy()
-    
+
+
 ##Sharpe Ratio
 flat_ret = [item for sublist in returns for item in sublist]
 
