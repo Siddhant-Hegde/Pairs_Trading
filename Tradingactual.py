@@ -23,19 +23,19 @@ import statsmodels.api as sm
 import statistics
 import math
 from functools import reduce
+from itertools import chain
 
 time_period = '240mo' ###20 years of tick data
 no_pairs = 4 ###4 pairs for each sector
 
 ###need to optimize these parameters
-pair_formation_period = 1000
+formation_period = 2000
 observe_pair_period = 500 ###no of days pair is observed (calc mean and std during this period)
-lookback_period = 10 ###check the pair mean and std and compare against mean and std from oberve_pair_period
+lookback_period = 2 ###check the pair mean and std and compare against mean and std from oberve_pair_period
 trading_period = 45
 threshold_in = 2
 threshold_out = 0.5
-rf = 1.0
-transaction_costs = 4.5
+rf = 0.5
 stop_loss_return = -4.0
 
 ####Do we want to scrape the data from yahoo or used excel files that contain data from when the yahoo data 
@@ -84,13 +84,13 @@ def which_function_to_run(*args, **kwargs):
  
 
 ####Determining the four pairs from each sector with the highest correlations
-def highest_correlated(ticks_by_GICS, d_with_ticker_dfs, no_pairs):
+def highest_correlated(ticks_by_GICS, d_with_ticker_dfs, no_pairs, strategy_run_day, formation_period):
     
     ###first determine the different correlations
     corr_mat = {}
     correlated_pairs = {} ###best pairs for each tick in each sector
     for sector in ticks_by_GICS:
-        corr_mat[sector] = d_with_ticker_dfs[sector].corr()
+        corr_mat[sector] = d_with_ticker_dfs[sector].iloc[strategy_run_day:strategy_run_day+formation_period].corr()
         corr_mat[sector].dropna(axis = 0, thresh = 2, inplace = True)
         corr_mat[sector].dropna(axis = 1, thresh = 2, inplace = True)
         correlated_pairs[sector] = {}
@@ -116,28 +116,24 @@ def highest_correlated(ticks_by_GICS, d_with_ticker_dfs, no_pairs):
     return best_correlated_pairs_sector
 
 ####Check if the pairs pass coinegration test
-def obtain_final_pairs(ticks_by_GICS,d_with_ticker_dfs, no_pairs):
+def obtain_final_pairs(ticks_by_GICS,d_with_ticker_dfs, no_pairs, strategy_run_day, formation_period):
     #eigen_vec = []
     final_pairs = [] ####Contains the pairs that pass all the tests
-    best_correlated_pairs_sector = highest_correlated(ticks_by_GICS, d_with_ticker_dfs, no_pairs)
+    best_correlated_pairs_sector = highest_correlated(ticks_by_GICS, d_with_ticker_dfs, no_pairs, strategy_run_day, formation_period)
     
     for sector in ticks_by_GICS:
         for i in range(len(best_correlated_pairs_sector[sector])):
             ##check for stationarity first (both stocks should be non stationary)
-            d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]].dropna(inplace=True)
-            d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]].dropna(inplace=True)
-            if ADF(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]]) and ADF(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]]):
-                joint_pairs_series = pd.merge(d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]], d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]], left_index=True, right_index=True)
+            stock_1 = d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][0]].iloc[strategy_run_day:strategy_run_day+formation_period].dropna()
+            stock_2 = d_with_ticker_dfs[sector][best_correlated_pairs_sector[sector][i][1]].iloc[strategy_run_day:strategy_run_day+formation_period].dropna()
+            if ADF(stock_1) and ADF(stock_2):
+                joint_pairs_series = pd.merge(stock_1, stock_2, left_index=True, right_index=True)
                 if get_johansen(joint_pairs_series, 0):
                     if get_johansen(joint_pairs_series, 0)[0] != 0:
                         final_pairs.append((best_correlated_pairs_sector[sector][i][0], best_correlated_pairs_sector[sector][i][1]))                       
 
     return final_pairs
 
-#######When to get into the pairs
-####determining s.d.s of the pair-ratios
-####threshold is 2 std's
-        
 ###if the spread over the observation period is bigger than the thresholds then we enter the pair
 def spreads(pairs, data_with_pair_values):
     
@@ -154,93 +150,72 @@ def spreads(pairs, data_with_pair_values):
     spread['zscore'] = (spread['spread'] - np.mean(spread['spread']))/np.std(spread['spread'])
 
     return spread
-        
-####################################
 
 ###calculating the returns from the strategy
-def returns_from_strategy(final_pairs, d_with_ticker_dfs):
-    ret = []
-
-    df_with_just_ticks_values = d_with_ticker_dfs['Industrials'].copy() ###df with all the ticks and no sector segregation
-
-    for sector in d_with_ticker_dfs:
-        if sector != 'Industrials':
-            df_with_just_ticks_values = pd.merge(df_with_just_ticks_values, d_with_ticker_dfs[sector], left_index=True, right_index=True)
-
-    for pair in final_pairs:
-        #num = df_with_just_ticks_values[pair[0]].iloc[0:training_set_size].copy()
-        first_stock = df_with_just_ticks_values[pair[0]].copy()
-        #denom = df_with_just_ticks_values[pair[1]].iloc[0:training_set_size].copy()
-        second_stock = df_with_just_ticks_values[pair[1]].copy()
-        pairs_df = pd.merge(first_stock, second_stock, left_index= True, right_index = True)
-        pairs_df.dropna(inplace=True)
-        
-        training_set_size = round(int(0.6 * pairs_df.shape[0]))
-        test_set_end = round(int(0.8 * pairs_df.shape[0]))
-        
-        if training_set_size < 0.5 * round(int(0.6 * df_with_just_ticks_values.shape[0])):
-            continue
-        
+def returns_from_strategy(final_pairs, d_with_ticker_dfs, df_with_just_ticks_values, strategy_run_day, df_with_pairs, formation_period, observe_pair_period):
     
+    ret = []
+    
+    for pair in final_pairs:
+        
+        pairs_df = df_with_pairs[[pair[0],pair[1]]]
         ###Check the mean Z-Score between the lookback period in comparison to the observation period
         ###to see if threshold_in gets breached. 
         ###And then keep checking trading period Z-Score to ensure the trades havent breached the threshold_out 
-        for i in range(observe_pair_period, training_set_size - trading_period - 1, lookback_period):
-                ###std up to lookback period is less than std during lookback period
-                daily_returns = []
-                cumulative_returns = 0
-                flag = 0
-                spread_obs_period = spreads(pair, pairs_df.iloc[0:i])
-                spread_lookback_period = spreads(pair, pairs_df.iloc[i:i+lookback_period])
-                z_score_obs_period = np.mean(spread_obs_period['zscore'])
-                z_score_lookback_period = np.mean(spread_lookback_period['zscore'])
-                if z_score_obs_period * threshold_in < z_score_lookback_period:
-                    ###Pairs have divereged
-                    ###Long 2nd and short 1st
-                    for t in range(2, trading_period):
-                        flag = 1
-                        spread_trading_period = spreads(pair, pairs_df.iloc[i+lookback_period:i+lookback_period+t])
-                        z_score_trading_period = np.mean(spread_trading_period['zscore'])
-                        if z_score_trading_period > threshold_out * z_score_obs_period: 
-                            if cumulative_returns > stop_loss_return:
-                                num = df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t]
-                                denom = df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t-1]
-                                num_1 = df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t]
-                                denom_1 = df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t-1]
-                                
-                                daily_returns.append((-1 * (spread_trading_period['hedge_ratio'] * (num/denom - 1)) + 1 * ((num_1/denom_1)-1)) + 1)
-    
-                                cumulative_returns = 100*((reduce(lambda x, y: x*y,daily_returns))-1)
-                            else: 
-                                ## if the loss is more than the stop loss
-                                break
-                        else:
-                            ## if the  pairs have converged to a large extent
-                                break
-                elif z_score_obs_period > threshold_in * z_score_lookback_period:
-                    ###Long 1st and short 2nd
-                    for t in range(2, trading_period):
-                        flag = 2
-                        spread_trading_period = spreads(pair, pairs_df.iloc[i+lookback_period:i+lookback_period+t])
-                        z_score_trading_period = np.mean(spread_trading_period['zscore'])
-                        if z_score_trading_period * threshold_out < z_score_obs_period: 
-                            if cumulative_returns > stop_loss_return:
-                                num = df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t]
-                                denom = df_with_just_ticks_values[pair[0]].iloc[i+lookback_period+t-1]
-                                num_1 = df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t]
-                                denom_1 = df_with_just_ticks_values[pair[1]].iloc[i+lookback_period+t-1]
-                                
-                                daily_returns.append((1 * ((num/denom - 1)) - 1 * (spread_trading_period['hedge_ratio'] * (num_1/denom_1)-1)) + 1)
-    
-                                cumulative_returns = 100*((reduce(lambda x, y: x*y,daily_returns))-1)
-                            else:
-                                break
-                        else:
-                                break
-    
-                if cumulative_returns!=0:
-                    if not math.isnan(cumulative_returns):
-                        ret.append(cumulative_returns*100) 
+            ###std up to lookback period is less than std during lookback period
+        daily_returns = []
+        cumulative_returns = 0
+        flag = 0
+        spread_obs_period = spreads(pair, pairs_df.iloc[strategy_run_day:strategy_run_day+observe_pair_period])
+        spread_lookback_period = spreads(pair, pairs_df.iloc[strategy_run_day+observe_pair_period:strategy_run_day+observe_pair_period+lookback_period])
+        z_score_obs_period = np.mean(spread_obs_period['zscore'])
+        z_score_lookback_period = np.mean(spread_lookback_period['zscore'])
+        if z_score_obs_period * threshold_in < z_score_lookback_period and flag == 0:
+            ###Pairs have divereged
+            ###Long 2nd and short 1st
+            for t in range(2, trading_period):
+                
+                spread_trading_period = spreads(pair, pairs_df.iloc[strategy_run_day+observe_pair_period+lookback_period:strategy_run_day+observe_pair_period+lookback_period+t])
+                z_score_trading_period = np.mean(spread_trading_period['zscore'])
+                
+                if z_score_trading_period > threshold_out * z_score_obs_period and cumulative_returns > stop_loss_return: 
+                        
+                        num = df_with_just_ticks_values[pair[0]].iloc[strategy_run_day+observe_pair_period+lookback_period+t]
+                        denom = df_with_just_ticks_values[pair[0]].iloc[strategy_run_day+observe_pair_period+lookback_period+t-1]
+                        num_1 = df_with_just_ticks_values[pair[1]].iloc[strategy_run_day+observe_pair_period+lookback_period+t]
+                        denom_1 = df_with_just_ticks_values[pair[1]].iloc[strategy_run_day+observe_pair_period+lookback_period+t-1]
+                        
+                        daily_returns.append((-1 * (spread_trading_period['hedge_ratio'] * (num/denom - 1)) + 1 * ((num_1/denom_1)-1)) + 1)
+                        
+                        cumulative_returns = 100*((reduce(lambda x, y: x*y,daily_returns))-1)
+                        
+                else:
+                    ## if the  pairs have converged to a large extent
+                        break
+        elif z_score_obs_period > threshold_in * z_score_lookback_period and flag == 0:
+            ###Long 1st and short 2nd
+            for t in range(2, trading_period):
+                
+                spread_trading_period = spreads(pair, pairs_df.iloc[strategy_run_day+observe_pair_period+lookback_period:strategy_run_day+observe_pair_period+lookback_period+t])
+                z_score_trading_period = np.mean(spread_trading_period['zscore'])
+                
+                if z_score_trading_period * threshold_out < z_score_obs_period and cumulative_returns > stop_loss_return: 
+                        
+                        num = df_with_just_ticks_values[pair[0]].iloc[strategy_run_day+observe_pair_period+lookback_period+t]
+                        denom = df_with_just_ticks_values[pair[0]].iloc[strategy_run_day+observe_pair_period+lookback_period+t-1]
+                        num_1 = df_with_just_ticks_values[pair[1]].iloc[strategy_run_day+observe_pair_period+lookback_period+t]
+                        denom_1 = df_with_just_ticks_values[pair[1]].iloc[strategy_run_day+observe_pair_period+lookback_period+t-1]
+                        daily_returns.append((1 * ((num/denom - 1)) - 1 * (spread_trading_period['hedge_ratio'] * (num_1/denom_1-1))) + 1)
+
+                        cumulative_returns = 100*((reduce(lambda x, y: x*y,daily_returns))-1)
+                        
+                else:
+                    
+                        break
+
+        if cumulative_returns!=0:
+            if not math.isnan(cumulative_returns):
+                ret.append(cumulative_returns) 
     
     return ret
 
@@ -254,11 +229,35 @@ ticks_by_GICS = {sector: list(GICS_df['Symbol'][GICS_df[GICS_df.columns[3]]==sec
 d_with_ticker_dfs = {sector: pd.DataFrame(index = sandp.index, columns = ticks_by_GICS[sector], data = np.zeros((sandp.shape[0] ,len(ticks_by_GICS[sector])))) for sector in ticks_by_GICS}
 d_with_ticker_dfs = [func for func in which_function_to_run(read_from_yahoo, read_from_excel, read_from_yahoo = (ticks_by_GICS, yahoo_option), read_from_excel = (ticks_by_GICS, excel_option)) if func is not None][0]
 
-###obtaining the pairs
-final_pairs = obtain_final_pairs(ticks_by_GICS,d_with_ticker_dfs, no_pairs)
+df_with_just_ticks_values = d_with_ticker_dfs['Industrials'].copy() ###df with all the ticks and no sector segregation
 
+for sector in d_with_ticker_dfs:
+    if sector != 'Industrials':
+        df_with_just_ticks_values = pd.merge(df_with_just_ticks_values, d_with_ticker_dfs[sector], left_index=True, right_index=True)
+    
+###obtaining the pairs
+strategy_run_day = 0
+
+final_pairs = obtain_final_pairs(ticks_by_GICS,d_with_ticker_dfs, no_pairs, strategy_run_day, formation_period)
+flat_list_pairs = list(set(chain(*final_pairs)))
+
+pairs_df = df_with_just_ticks_values[flat_list_pairs].copy()
+pairs_df.dropna(inplace=True)
+        
+training_set_size = round(int(0.8 * pairs_df.shape[0]))
+
+returns = []
+while strategy_run_day < training_set_size:
+    ret = returns_from_strategy(final_pairs, d_with_ticker_dfs, df_with_just_ticks_values, strategy_run_day, pairs_df, formation_period, observe_pair_period)
+    returns.append(ret)
+    strategy_run_day = strategy_run_day + formation_period + observe_pair_period + trading_period + lookback_period
+    final_pairs = obtain_final_pairs(ticks_by_GICS,d_with_ticker_dfs, no_pairs, strategy_run_day, formation_period)
+    final_pairs_flattened = list(set(chain(*final_pairs)))
+    pairs_df = df_with_just_ticks_values[final_pairs_flattened].copy()
+    
 ##Sharpe Ratio
-ret = returns_from_strategy(final_pairs, d_with_ticker_dfs)
-sr = (statistics.mean(ret) - rf - transaction_costs)/statistics.stdev(ret)
+flat_ret = [item for sublist in returns for item in sublist]
+
+sr = (statistics.mean(flat_ret) - rf)/statistics.stdev(flat_ret)
     
 print(sr)
